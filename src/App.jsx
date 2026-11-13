@@ -1,362 +1,276 @@
-import { useEffect, useRef, useState } from "react";
-import {
-  ArrowDownToLine, Check, ChevronDown, ImagePlus, LockKeyhole, Settings2,
-  ShieldCheck, Upload, UsersRound, X,
-} from "lucide-react";
-import { useCommunity } from "./context/CommunityContext";
-import { renderPoster } from "./utils/posterRenderer";
+import { useCallback, useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Download, Image as ImageIcon, Link2, QrCode, RotateCcw, Upload } from "lucide-react";
+import AlignmentGrid from "./components/AlignmentGrid";
+import FilePicker from "./components/FilePicker";
+import PosterPreview from "./components/PosterPreview";
+import { DEFAULT_ALIGNMENT, LIMITS, TEMPLATE } from "./config/poster";
+import { loadImageAsset, loadImageUrl, releaseAsset, validateImageFile } from "./lib/images";
+import { createQrImage } from "./lib/qr";
+import { renderPoster } from "./lib/renderPoster";
+import { normalizeQrText, slugify } from "./lib/text";
 
-const sections = [
-  { id: "collaboration", title: "Community collaboration", detail: "For events and projects created together.", number: "01" },
-  { id: "attendee", title: "Speaker & attendee", detail: "Introduce a speaker, guest, or attendee.", number: "02" },
-  { id: "leads", title: "Community leads", detail: "Introduce your community and organizing team.", number: "03" },
-];
+const QR_ERROR = "That text is too long to fit in a QR code. Try a shorter link.";
 
-const MAX_IMAGE_SIZE = 12 * 1024 * 1024;
-const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+export default function App() {
+  const [template, setTemplate] = useState({ status: "loading", img: null });
+  const [name, setName] = useState("");
+  const [showName, setShowName] = useState(false);
+  const [logo, setLogo] = useState(null);
+  const [logoError, setLogoError] = useState("");
+  const [align, setAlign] = useState(DEFAULT_ALIGNMENT);
+  const [qrMode, setQrMode] = useState("link");
+  const [qrLink, setQrLink] = useState("");
+  const [qrGenerated, setQrGenerated] = useState({ img: null, error: "" });
+  const [qrUpload, setQrUpload] = useState(null);
+  const [qrUploadError, setQrUploadError] = useState("");
+  const [status, setStatus] = useState({ type: "", text: "" });
 
-function readImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("The selected image could not be read."));
-    reader.readAsDataURL(file);
-  });
-}
+  const loadTemplate = useCallback(() => {
+    setTemplate({ status: "loading", img: null });
+    loadImageUrl(TEMPLATE.url).then(
+      (img) => setTemplate({ status: "ready", img }),
+      () => setTemplate({ status: "error", img: null }),
+    );
+  }, []);
+  useEffect(loadTemplate, [loadTemplate]);
 
-function getImageDimensions(source) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
-    image.onerror = () => reject(new Error("The selected file is not a valid image."));
-    image.src = source;
-  });
-}
+  // Turn the typed link into a QR image (debounced, with a stale-result guard).
+  useEffect(() => {
+    if (qrMode !== "link") return undefined;
+    const text = normalizeQrText(qrLink);
+    if (!text) { setQrGenerated({ img: null, error: "" }); return undefined; }
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const img = await createQrImage(text);
+        if (!cancelled) setQrGenerated({ img, error: "" });
+      } catch {
+        if (!cancelled) setQrGenerated({ img: null, error: QR_ERROR });
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [qrMode, qrLink]);
 
-function validateImage(file) {
-  if (!allowedTypes.includes(file.type)) throw new Error("Choose a JPG, PNG, or WebP image.");
-  if (file.size > MAX_IMAGE_SIZE) throw new Error("Images must be 12 MB or smaller.");
-}
+  const qrImage = qrMode === "link" ? qrGenerated.img : qrUpload?.img ?? null;
+  const cleanName = name.trim();
+  const printedName = showName ? cleanName : "";
+  const missing = [!cleanName && "community name", !logo && "logo", !qrImage && "QR code"].filter(Boolean);
+  const ready = template.status === "ready" && missing.length === 0;
 
-function hasUploadedTemplate(template) {
-  return Boolean(template?.image && (template.isUploaded || !template.image.startsWith("data:image/svg+xml")));
-}
+  // Any edit invalidates the "downloaded" message.
+  useEffect(() => { setStatus({ type: "", text: "" }); }, [name, showName, logo, align, qrImage]);
 
-function BrandFields({ name, setName, logo, setLogo, error, setError, community }) {
-  const fileRef = useRef(null);
-
-  const onLogoChange = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
+  const acceptImage = async (file, current, setAsset, setError) => {
+    const problem = validateImageFile(file);
+    if (problem) { setError(problem); return; }
     try {
-      validateImage(file);
-      setLogo(await readImage(file));
+      const asset = await loadImageAsset(file);
+      releaseAsset(current);
+      setAsset(asset);
       setError("");
     } catch (reason) {
       setError(reason.message);
     }
   };
-
-  return (
-    <section className="brand-fields">
-      <div className="brand-fields-heading">
-        <div className="section-index">A</div>
-        <div>
-          <span className="eyebrow">YOUR POSTER IDENTITY</span>
-          <h2>Community details</h2>
-          <p>These details update all three poster previews as you type.</p>
-        </div>
-      </div>
-      <div className="brand-fields-grid">
-        <label className="field-control">
-          <span>Community name</span>
-          <input value={name} onChange={(event) => setName(event.target.value.slice(0, 80))} placeholder={community?.name || "Your community name"} maxLength={80} />
-        </label>
-        <div className="field-control">
-          <span>Community logo <small>JPG, PNG or WebP · up to 12 MB</small></span>
-          <button className={`logo-picker ${logo ? "has-logo" : ""}`} type="button" onClick={() => fileRef.current?.click()}>
-            {logo ? <img src={logo} alt="Uploaded community logo" /> : <><ImagePlus size={19} /><span>Upload your logo</span></>}
-          </button>
-          <input ref={fileRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={onLogoChange} />
-          {logo && <button className="clear-logo" type="button" onClick={() => setLogo("")}>Remove logo <X size={13} /></button>}
-        </div>
-      </div>
-      {error && <p className="inline-error" role="alert">{error}</p>}
-    </section>
-  );
-}
-
-function TemplateUpload({ section, template, onUpload, positionX, setPositionX, positionY, setPositionY, logoScale, setLogoScale, showName, setShowName, showLogo, setShowLogo, error }) {
-  const inputRef = useRef(null);
-  const uploaded = hasUploadedTemplate(template);
-  return (
-    <div className="admin-template">
-      <input ref={inputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => onUpload(event)} />
-      <div className="admin-template-row">
-        <div className="template-file-icon"><Upload size={17} /></div>
-        <div className="template-file-copy">
-          <strong>{uploaded ? "Uploaded poster template" : "No template uploaded"}</strong>
-          <small>{uploaded && template.width && template.height ? `${template.width} × ${template.height}px` : "Upload a poster background image"}</small>
-        </div>
-        <button className="button button-outline" type="button" onClick={() => inputRef.current?.click()}>
-          <Upload size={15} /> {uploaded ? "Replace" : "Upload template"}
-        </button>
-      </div>
-      <div className="template-position-row">
-        <label className="overlay-toggle"><input type="checkbox" checked={showLogo} onChange={(event) => setShowLogo(event.target.checked)} /> Add logo</label>
-        <label className="overlay-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /> Add name</label>
-        <label><span>Horizontal position · {Math.round(positionX * 100)}%</span><input aria-label={`${section.title} horizontal position`} type="range" min="0.02" max="0.88" step="0.005" value={positionX} onChange={(event) => setPositionX(Number(event.target.value))} /></label>
-        <label><span>Vertical position · {Math.round(positionY * 100)}%</span><input aria-label={`${section.title} vertical position`} type="range" min="0.02" max="0.88" step="0.005" value={positionY} onChange={(event) => setPositionY(Number(event.target.value))} /></label>
-        <label><span>Logo size · {Math.round(logoScale * 100)}%</span><input aria-label={`${section.title} logo size`} type="range" min="0.05" max="0.15" step="0.005" value={logoScale} onChange={(event) => setLogoScale(Number(event.target.value))} /></label>
-        <span className="position-hint"><LockKeyhole size={13} /> Artwork locked; overlay position editable</span>
-      </div>
-      {error && <p className="inline-error" role="alert">{error}</p>}
-    </div>
-  );
-}
-
-function PosterModule({ section, community, name, logo, adminMode, onTemplateUpload, onTemplateChange }) {
-  const canvasRef = useRef(null);
-  const renderVersion = useRef(0);
-  const renderedSnapshot = useRef(null);
-  const template = community?.templates?.[section.id];
-  const uploadedTemplate = hasUploadedTemplate(template);
-  const [positionX, setPositionX] = useState(template?.brandX ?? 0.045);
-  const [positionY, setPositionY] = useState(template?.brandY ?? 0.04);
-  const [logoScale, setLogoScale] = useState(template?.logoScale || 0.085);
-  const [showName, setShowName] = useState(template?.showName ?? true);
-  const [showLogo, setShowLogo] = useState(template?.showLogo ?? true);
-  const [error, setError] = useState("");
-  const [downloadMessage, setDownloadMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    setPositionX(template?.brandX ?? 0.045);
-    setPositionY(template?.brandY ?? 0.04);
-    setLogoScale(template?.logoScale || 0.085);
-    setShowName(template?.showName ?? true);
-    setShowLogo(template?.showLogo ?? true);
-  }, [community?.id, section.id, template?.brandX, template?.brandY, template?.logoScale, template?.showName, template?.showLogo]);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return undefined;
-    const version = ++renderVersion.current;
-    let active = true;
-    setBusy(true);
-    if (!uploadedTemplate) {
-      canvas.width = 1080;
-      canvas.height = 1350;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        setError("Canvas preview is not supported by this browser.");
-        setBusy(false);
-        return () => { active = false; };
-      }
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      renderedSnapshot.current = { template, name, logo, positionX, positionY, logoScale, showName, showLogo };
-      setError("");
-      setBusy(false);
-      return () => { active = false; };
-    }
-    renderPoster(template, { name: showName ? name : "", logo: showLogo ? logo : "", positionX, positionY, logoScale })
-      .then((rendered) => {
-        if (!active || version !== renderVersion.current) return;
-        canvas.width = rendered.width;
-        canvas.height = rendered.height;
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Canvas preview is not supported by this browser.");
-        context.drawImage(rendered, 0, 0);
-        renderedSnapshot.current = { template, name, logo, positionX, positionY, logoScale, showName, showLogo };
-        setError("");
-        setBusy(false);
-      })
-      .catch((reason) => {
-        if (!active || version !== renderVersion.current) return;
-        setError(reason.message || "The poster preview could not be updated.");
-        setBusy(false);
-      });
-    return () => { active = false; };
-  }, [template, uploadedTemplate, name, logo, positionX, positionY, logoScale, showName, showLogo]);
-
-  const uploadTemplate = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    try {
-      validateImage(file);
-      const image = await readImage(file);
-      const { width, height } = await getImageDimensions(image);
-      await onTemplateUpload(section.id, { image, width, height, isUploaded: true, brandX: positionX, brandY: positionY, logoScale, showName, showLogo });
-      setError("");
-    } catch (reason) {
-      setError(reason.message || "The template could not be saved.");
-    }
-  };
-
-  const updatePositionX = (nextPosition) => {
-    setPositionX(nextPosition);
-    onTemplateChange(section.id, { brandX: nextPosition });
-  };
-  const updatePositionY = (nextPosition) => {
-    setPositionY(nextPosition);
-    onTemplateChange(section.id, { brandY: nextPosition });
-  };
-
-  const updateLogoScale = (nextScale) => {
-    setLogoScale(nextScale);
-    onTemplateChange(section.id, { logoScale: nextScale });
-  };
+  const clearAsset = (current, setAsset, setError) => { releaseAsset(current); setAsset(null); setError(""); };
 
   const download = () => {
-    const canvas = canvasRef.current;
-    if (!uploadedTemplate) {
-      setError("Upload an approved poster template before downloading.");
+    if (!ready) return;
+    const canvas = document.createElement("canvas");
+    try {
+      renderPoster(canvas, { template: template.img, logo, align, qr: qrImage, name: printedName, placeholders: false });
+    } catch (reason) {
+      setStatus({ type: "error", text: reason.message });
       return;
     }
-    const snapshot = renderedSnapshot.current;
-    const previewIsCurrent = snapshot
-      && snapshot.template === template
-      && snapshot.name === (showName ? name : "")
-      && snapshot.logo === (showLogo ? logo : "")
-      && snapshot.positionX === positionX
-      && snapshot.positionY === positionY
-      && snapshot.logoScale === logoScale
-      && snapshot.showName === showName
-      && snapshot.showLogo === showLogo;
-    if (!canvas || busy || error || !previewIsCurrent) {
-      setError(error || "Wait for the latest preview to finish rendering.");
-      return;
-    }
+    const fileName = `dev-carnival-${slugify(cleanName) || "community"}-poster.png`;
     canvas.toBlob((blob) => {
-      if (!blob) {
-        setError("The poster could not be exported. Please try again.");
-        return;
-      }
+      if (!blob) { setStatus({ type: "error", text: "Your browser could not create the image. Please try again." }); return; }
       const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      const communitySlug = (community?.name || "community").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      anchor.href = url;
-      anchor.download = `${communitySlug}-${section.id}.png`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      setDownloadMessage("PNG downloaded");
-      window.setTimeout(() => setDownloadMessage(""), 3000);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      setStatus({ type: "ok", text: `Poster downloaded as ${fileName}` });
     }, "image/png");
   };
 
-  return (
-    <article className="poster-module" id={`module-${section.id}`}>
-      <div className="module-heading">
-        <span className="module-number">{section.number}</span>
-        <div className="module-title"><h2>{section.title}</h2><p>{section.detail}</p></div>
-        <span className="locked-badge"><LockKeyhole size={13} /> TEMPLATE LOCKED</span>
-      </div>
-      {adminMode && <TemplateUpload section={section} template={template} onUpload={uploadTemplate} positionX={positionX} setPositionX={updatePositionX} positionY={positionY} setPositionY={updatePositionY} logoScale={logoScale} setLogoScale={updateLogoScale} showName={showName} setShowName={(value) => { setShowName(value); onTemplateChange(section.id, { showName: value }); }} showLogo={showLogo} setShowLogo={(value) => { setShowLogo(value); onTemplateChange(section.id, { showLogo: value }); }} error={error} />}
-      <div className="module-preview-wrap">
-        <div className="preview-canvas-wrap">
-          <canvas ref={canvasRef} aria-label={`${section.title} live poster preview`} />
-          {busy && <div className="preview-loading">Updating preview…</div>}
-          {!uploadedTemplate && <span className="starter-badge"><ShieldCheck size={12} /> Blank preview — upload a template in admin mode</span>}
-        </div>
-      </div>
-      {error && !adminMode && <p className="inline-error" role="alert">{error}</p>}
-      <div className="module-footer">
-        <span className="preview-lock"><LockKeyhole size={14} /> Only name and logo are overlaid on the artwork.</span>
-        <div className="download-actions">{downloadMessage && <span className="success-message"><Check size={14} />{downloadMessage}</span>}<button className="button button-dark" onClick={download} disabled={busy || !uploadedTemplate}><ArrowDownToLine size={16} /> Download PNG</button></div>
-      </div>
-    </article>
-  );
-}
-
-export default function App() {
-  const { communities, setCommunities, selectedCommunity, selectCommunity, storageError: persistenceError, ready } = useCommunity();
-  const [communityId, setCommunityId] = useState(selectedCommunity?.id || "");
-  const [name, setName] = useState(selectedCommunity?.name || "");
-  const [logo, setLogo] = useState(selectedCommunity?.logo || "");
-  const [adminMode, setAdminMode] = useState(false);
-  const [formError, setFormError] = useState("");
-  const community = communities.find((entry) => entry.id === communityId) || communities[0] || null;
-
-  useEffect(() => {
-    if (!ready || !selectedCommunity) return;
-    setCommunityId(selectedCommunity.id);
-  }, [ready, selectedCommunity?.id]);
-
-  useEffect(() => {
-    if (!ready || !community) return;
-    setName(community.name || "");
-    setLogo(community.logo || "");
-  }, [ready, community?.id]);
-
-  if (!ready) {
-    return <div className="app-shell"><header className="topbar"><a className="brand" href="#top"><span className="brand-symbol">C</span><span>Community Hub<small>POSTER STUDIO</small></span></a></header><main><div className="loading-state" role="status">Loading your saved community templates…</div></main></div>;
-  }
-
-  const updateTemplate = async (sectionId, patch) => {
-    if (!community) return;
-    const next = communities.map((entry) => entry.id === community.id
-      ? { ...entry, templates: { ...entry.templates, [sectionId]: { ...entry.templates?.[sectionId], ...patch } } }
-      : entry);
-    try {
-      await setCommunities(next);
-      setFormError("");
-    } catch (reason) {
-      setFormError(`Template update could not be saved in this browser: ${reason.message}`);
-    }
+  const startOver = () => {
+    const dirty = cleanName || logo || qrLink || qrUpload;
+    if (dirty && !window.confirm("Clear everything and start over?")) return;
+    releaseAsset(logo);
+    releaseAsset(qrUpload);
+    setName(""); setShowName(false); setLogo(null); setLogoError(""); setAlign(DEFAULT_ALIGNMENT);
+    setQrMode("link"); setQrLink(""); setQrGenerated({ img: null, error: "" });
+    setQrUpload(null); setQrUploadError(""); setStatus({ type: "", text: "" });
   };
 
-  const uploadTemplate = async (sectionId, template) => {
-    if (!community) return;
-    const next = communities.map((entry) => entry.id === community.id
-      ? { ...entry, templates: { ...entry.templates, [sectionId]: { ...entry.templates?.[sectionId], ...template } } }
-      : entry);
-    await setCommunities(next);
-    setFormError("");
-  };
-
-  const scrollToModule = (id) => document.getElementById(`module-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
-
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#top"><span className="brand-symbol">C</span><span>Community Hub<small>POSTER STUDIO</small></span></a>
-        <div className="topbar-controls">
-          <label className="community-select"><UsersRound size={16} /><select value={community?.id || ""} onChange={(event) => { setCommunityId(event.target.value); selectCommunity(event.target.value); }} aria-label="Select community">
-            {communities.map((entry) => <option value={entry.id} key={entry.id}>{entry.name}</option>)}
-          </select><ChevronDown size={14} /></label>
-          <label className="admin-toggle"><input type="checkbox" checked={adminMode} onChange={(event) => setAdminMode(event.target.checked)} /><Settings2 size={15} /><span>Admin templates</span></label>
+    <div className="app">
+      <header className="site-header">
+        <div className="wrap header-inner">
+          <span className="brand-mark" aria-hidden="true">DC</span>
+          <div>
+            <p className="brand-name">Dev Carnival 2027</p>
+            <p className="brand-sub">Community partner poster</p>
+          </div>
         </div>
       </header>
 
-      <main id="top">
-        {persistenceError && <div className="persistence-warning" role={persistenceError.includes("…") ? "status" : "alert"}><LockKeyhole size={15} />{persistenceError}</div>}
-        <section className="intro">
-          <span className="eyebrow">ONE SIMPLE WORKFLOW · THREE POSTER MODULES</span>
-          <h1>Your community.<br /><span>Your poster.</span></h1>
-          <p>Choose your community, add its name and logo, then download a poster. Admins can upload a separate locked template for each module.</p>
-          <div className="module-jump">{sections.map((section) => <button key={section.id} onClick={() => scrollToModule(section.id)}><span>{section.number}</span>{section.title}</button>)}</div>
-        </section>
+      <main className="wrap main">
+        <div className="intro">
+          <h1>Make your community partner poster</h1>
+          <p>Add your community name, logo and QR code. We place them on the official Dev Carnival design — you just download it.</p>
+        </div>
 
-        <div className="content-grid">
-          <div className="editor-column">
-            {community ? <BrandFields name={name} setName={setName} logo={logo} setLogo={setLogo} error={formError} setError={setFormError} community={community} /> : <section className="brand-fields"><h2>Add a community first</h2><p>There are no local community profiles to select.</p></section>}
-            {adminMode && <div className="admin-notice"><ShieldCheck size={17} /><span><strong>Admin template mode</strong> Uploads are stored only in this browser. This static app does not provide account authentication.</span></div>}
-            {sections.map((section) => community && <PosterModule key={`${community.id}-${section.id}`} section={section} community={community} name={name} logo={logo} adminMode={adminMode} onTemplateUpload={uploadTemplate} onTemplateChange={updateTemplate} />)}
-          </div>
-          <aside className="side-note">
-            <div className="side-note-icon"><LockKeyhole size={17} /></div>
-            <h2>Design stays yours.</h2>
-            <p>Your template is the locked background. Only the community name and logo are added on top, side by side.</p>
-            <div className="side-note-rule" />
-            <span>PRIVATE BY DEFAULT</span>
-            <small>Templates and logos stay in this browser. Nothing is uploaded to a server.</small>
-          </aside>
+        <div className="layout">
+          <form className="panel" onSubmit={(event) => { event.preventDefault(); download(); }} noValidate>
+            <section className="step">
+              <h2><span className="step-number">1</span>Community name</h2>
+              <label htmlFor="community-name" className="sr-only">Community name</label>
+              <input
+                id="community-name"
+                className="text-input"
+                value={name}
+                maxLength={LIMITS.nameMax}
+                autoComplete="organization"
+                placeholder="e.g. AI Geeks Chennai"
+                aria-describedby="name-hint"
+                onChange={(event) => setName(event.target.value)}
+              />
+              <label className="check">
+                <input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} />
+                <span>Also print this name under my logo</span>
+              </label>
+              <p id="name-hint" className="hint">Always used to name your file. Leave the box unticked if your logo already shows the name.<span className="counter">{name.length}/{LIMITS.nameMax}</span></p>
+            </section>
+
+            <section className="step">
+              <h2><span className="step-number">2</span>Community logo</h2>
+              <FilePicker
+                id="logo-file"
+                asset={logo}
+                title="Upload your logo"
+                describedBy={logoError ? "logo-error" : undefined}
+                onFile={(file) => acceptImage(file, logo, setLogo, setLogoError)}
+                onClear={() => clearAsset(logo, setLogo, setLogoError)}
+              />
+              {logoError && <p id="logo-error" className="error" role="alert"><AlertCircle size={15} aria-hidden="true" />{logoError}</p>}
+              <p className="hint">A wide logo with a transparent background works best.</p>
+              {logo && (
+                <div className="align-box">
+                  <div className="align-row">
+                    <div>
+                      <p className="label" id="align-label">Alignment</p>
+                      <AlignmentGrid ax={align.ax} ay={align.ay} onChange={(ax, ay) => setAlign((value) => ({ ...value, ax, ay }))} />
+                    </div>
+                    <div className="size-control">
+                      <label className="label" htmlFor="logo-size">Size <output htmlFor="logo-size">{Math.round(align.size * 100)}%</output></label>
+                      <input
+                        id="logo-size"
+                        type="range"
+                        min="30"
+                        max="100"
+                        step="1"
+                        value={Math.round(align.size * 100)}
+                        onChange={(event) => setAlign((value) => ({ ...value, size: Number(event.target.value) / 100 }))}
+                      />
+                      <button type="button" className="text-button" onClick={() => setAlign(DEFAULT_ALIGNMENT)}>Reset alignment</button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </section>
+
+            <section className="step">
+              <h2><span className="step-number">3</span>QR code</h2>
+              <div className="segmented" role="group" aria-label="QR code source">
+                <button type="button" aria-pressed={qrMode === "link"} onClick={() => setQrMode("link")}><Link2 size={15} aria-hidden="true" />Create from link</button>
+                <button type="button" aria-pressed={qrMode === "upload"} onClick={() => setQrMode("upload")}><Upload size={15} aria-hidden="true" />Upload image</button>
+              </div>
+              {qrMode === "link" ? (
+                <>
+                  <label htmlFor="qr-link" className="sr-only">Link for the QR code</label>
+                  <input
+                    id="qr-link"
+                    className="text-input"
+                    value={qrLink}
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck={false}
+                    placeholder="e.g. https://linktr.ee/yourcommunity"
+                    aria-describedby="qr-hint"
+                    onChange={(event) => setQrLink(event.target.value)}
+                  />
+                  {qrGenerated.error
+                    ? <p className="error" role="alert"><AlertCircle size={15} aria-hidden="true" />{qrGenerated.error}</p>
+                    : <p id="qr-hint" className="hint">Where should people land when they scan? Your community page, WhatsApp group or Linktree.</p>}
+                </>
+              ) : (
+                <>
+                  <FilePicker
+                    id="qr-file"
+                    asset={qrUpload}
+                    title="Upload your QR code"
+                    describedBy={qrUploadError ? "qr-upload-error" : undefined}
+                    onFile={(file) => acceptImage(file, qrUpload, setQrUpload, setQrUploadError)}
+                    onClear={() => clearAsset(qrUpload, setQrUpload, setQrUploadError)}
+                  />
+                  {qrUploadError && <p id="qr-upload-error" className="error" role="alert"><AlertCircle size={15} aria-hidden="true" />{qrUploadError}</p>}
+                  <p className="hint">Use a square image with a white background.</p>
+                </>
+              )}
+            </section>
+
+            <div className="actions">
+              <button type="submit" className="primary" disabled={!ready} aria-describedby="ready-note">
+                <Download size={18} aria-hidden="true" />Generate &amp; download poster
+              </button>
+              <button type="button" className="secondary" onClick={startOver}><RotateCcw size={15} aria-hidden="true" />Start over</button>
+            </div>
+            <p id="ready-note" className="ready-note">
+              {missing.length ? `Still needed: ${missing.join(", ")}.` : "Everything is in place. Your PNG is 1254 × 1254 px."}
+            </p>
+            <div className="status" role="status" aria-live="polite">
+              {status.text && (
+                <p className={status.type === "error" ? "error" : "success"}>
+                  {status.type === "error" ? <AlertCircle size={15} aria-hidden="true" /> : <CheckCircle2 size={15} aria-hidden="true" />}
+                  {status.text}
+                </p>
+              )}
+            </div>
+          </form>
+
+          <section className="preview" aria-label="Live poster preview">
+            <div className="preview-head"><ImageIcon size={15} aria-hidden="true" /><span>Live preview</span></div>
+            <div className="preview-frame">
+              {template.status === "ready" && (
+                <PosterPreview
+                  template={template.img}
+                  logo={logo}
+                  align={align}
+                  qr={qrImage}
+                  name={printedName}
+                  label={`Dev Carnival poster preview${cleanName ? ` for ${cleanName}` : ""}`}
+                />
+              )}
+              {template.status === "loading" && <p className="preview-message">Loading the poster…</p>}
+              {template.status === "error" && (
+                <div className="preview-message">
+                  <p>The poster design could not be loaded.</p>
+                  <button type="button" className="secondary" onClick={loadTemplate}><RotateCcw size={15} aria-hidden="true" />Try again</button>
+                </div>
+              )}
+            </div>
+            <p className="preview-note"><QrCode size={14} aria-hidden="true" />Scan the QR on your screen with your phone before you share the poster.</p>
+          </section>
         </div>
       </main>
-      <footer className="page-footer"><span>COMMUNITY HUB · POSTER STUDIO</span><a href="#top">Back to top ↑</a></footer>
+
+      <footer className="wrap site-footer">Your files stay in your browser — nothing is uploaded.</footer>
     </div>
   );
 }

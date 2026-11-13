@@ -1,29 +1,38 @@
-# Community Hub — Poster Studio
+# Dev Carnival 2027 — Community Poster Generator
 
-A static React application with one page and three poster modules: community collaboration, speaker/attendee, and community leads.
+A single-purpose web app. A community lead enters:
 
-## Run locally
+1. **Community name** (names the downloaded file; optionally also printed under the logo),
+2. **Community logo** (with 3 × 3 alignment and a size slider),
+3. **QR code** (generated from a link, or an uploaded image),
 
-Requires Node.js 18 or newer.
+and downloads a 1254 × 1254 px PNG of the official Dev Carnival "community partner" poster.
+
+Everything runs in the browser. Nothing is uploaded and nothing is stored.
+
+## Run
 
 ```sh
 npm install
-npm run dev
+npm run dev      # http://localhost:5173
+npm test         # unit tests for the pure helpers
+npm run build    # static site in dist/
 ```
 
-Run `npm run build` to generate a static production bundle in `dist/`. Deploy `dist/` to a static host configured to serve `index.html` for the application route.
+Requires Node.js 18+. `dist/` can be hosted on any static host.
 
-## Workflow
+## Project layout
 
-1. Select a community.
-2. Enter its name and upload its logo. The three previews update as the fields change.
-3. Optionally enable **Admin templates** to upload artwork for each module, position the name/logo overlay with X/Y controls, set its size, and save that design as the locked background for that community.
-4. Download any module as a full-resolution PNG.
+| Path | Purpose |
+| --- | --- |
+| `src/config/poster.js` | All artwork coordinates (logo area, divider, QR square) and upload limits |
+| `src/assets/dev-carnival-template.png` | The official artwork |
+| `src/lib/renderPoster.js` | Canvas drawing. Used by both the live preview and the PNG export |
+| `src/lib/geometry.js`, `text.js` | Pure helpers (placement/alignment, QR text, file names) |
+| `src/lib/images.js`, `qr.js` | Image loading/validation and QR creation |
+| `src/components/`, `src/App.jsx` | UI |
 
-Template artwork is stored in this browser's IndexedDB. Older LocalStorage configurations are migrated when possible. All images are processed locally; there is no server or shared login, so community data is not shared across browsers or devices. The app allows images up to 12 MB.
+## Notes
 
-Uploaded artwork remains the unmodified background. Only the community logo and name are drawn on top, side by side, at the selected normalized X/Y position. Other poster content must already be part of the uploaded image.
-
-## Privacy
-
-This static app does not provide authenticated admin roles. The admin-template switch exposes local template controls but is not an access-control mechanism. Do not store sensitive content in a shared browser profile.
+- Logos with an opaque white background (typical JPGs) are blended so the white disappears into the poster. Transparent PNGs work best.
+- To use new artwork, replace the PNG and update the coordinates in `src/config/poster.js`.
