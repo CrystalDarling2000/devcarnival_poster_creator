@@ -37,3 +37,16 @@ test("fitLine shrinks first, then truncates with an ellipsis", async () => {
   assert.equal(cut.size, 20);
   assert.ok(cut.text.endsWith("…") && at(cut.text, 20) <= 400);
 });
+
+test("fitText wraps to two lines, shrinks, then truncates", async () => {
+  const { fitText } = await import("../src/lib/text.js");
+  const at = (s, size) => s.length * size;
+  const spec = { maxWidth: 400, maxLines: 2, maxSize: 40, minSize: 20 };
+  assert.deepEqual(fitText(at, "Short", spec), { size: 40, lines: ["Short"] });
+  const two = fitText(at, "Tamil Nadu Java User Group", spec);
+  assert.ok(two.lines.length <= 2 && two.size < 40);
+  const cut = fitText(at, "word ".repeat(40), spec);
+  assert.equal(cut.lines.length, 2);
+  assert.ok(cut.lines[1].endsWith("…"));
+  assert.deepEqual(fitText(at, "  ", spec).lines, []);
+});

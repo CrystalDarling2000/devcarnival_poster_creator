@@ -3,7 +3,7 @@ import { AlertCircle, CheckCircle2, Download, Image as ImageIcon, Link2, QrCode,
 import AlignmentGrid from "./components/AlignmentGrid";
 import FilePicker from "./components/FilePicker";
 import PosterPreview from "./components/PosterPreview";
-import { DEFAULT_ALIGNMENT, LIMITS, TEMPLATE } from "./config/poster";
+import { DEFAULT_ALIGNMENT, DEFAULT_NAME_STYLE, LIMITS, TEMPLATE } from "./config/poster";
 import { loadImageAsset, loadImageUrl, releaseAsset, validateImageFile } from "./lib/images";
 import { createQrImage } from "./lib/qr";
 import { renderPoster } from "./lib/renderPoster";
@@ -11,10 +11,41 @@ import { normalizeQrText, slugify } from "./lib/text";
 
 const QR_ERROR = "That text is too long to fit in a QR code. Try a shorter link.";
 
+const ALIGN_OPTIONS = {
+  below: { key: "ax", label: "Align under logo", choices: [[0, "Left"], [0.5, "Center"], [1, "Right"]] },
+  left: { key: "ay", label: "Align beside logo", choices: [[0, "Top"], [0.5, "Middle"], [1, "Bottom"]] },
+  right: { key: "ay", label: "Align beside logo", choices: [[0, "Top"], [0.5, "Middle"], [1, "Bottom"]] },
+};
+
+// Where the name goes (below / left of the logo), how it is aligned and how big it is.
+function NameControls({ style, onChange }) {
+  const align = ALIGN_OPTIONS[style.position];
+  return (
+    <div className="align-box name-controls">
+      <p className="label" id="name-position-label">Where should the name go?</p>
+      <div className="segmented segmented-3" role="group" aria-labelledby="name-position-label">
+        {[["below", "Below logo"], ["left", "Left of logo"], ["right", "Right of logo"]].map(([value, text]) => (
+          <button key={value} type="button" aria-pressed={style.position === value} onClick={() => onChange({ position: value })}>{text}</button>
+        ))}
+      </div>
+      <p className="label" id="name-align-label">{align.label}</p>
+      <div className="segmented segmented-3" role="group" aria-labelledby="name-align-label">
+        {align.choices.map(([value, text]) => (
+          <button key={text} type="button" aria-pressed={style[align.key] === value} onClick={() => onChange({ [align.key]: value })}>{text}</button>
+        ))}
+      </div>
+      <label className="label" htmlFor="name-size">Name size <output htmlFor="name-size">{Math.round(style.size * 100)}%</output></label>
+      <input id="name-size" type="range" min="60" max="130" step="1" value={Math.round(style.size * 100)} onChange={(event) => onChange({ size: Number(event.target.value) / 100 })} />
+      <button type="button" className="text-button" onClick={() => onChange(DEFAULT_NAME_STYLE)}>Reset name layout</button>
+    </div>
+  );
+}
+
 export default function App() {
   const [template, setTemplate] = useState({ status: "loading", img: null });
   const [name, setName] = useState("");
   const [showName, setShowName] = useState(false);
+  const [nameStyle, setNameStyle] = useState(DEFAULT_NAME_STYLE);
   const [logo, setLogo] = useState(null);
   const [logoError, setLogoError] = useState("");
   const [align, setAlign] = useState(DEFAULT_ALIGNMENT);
@@ -54,11 +85,11 @@ export default function App() {
   const qrImage = qrMode === "link" ? qrGenerated.img : qrUpload?.img ?? null;
   const cleanName = name.trim();
   const printedName = showName ? cleanName : "";
-  const missing = [!cleanName && "community name", !logo && "logo", !qrImage && "QR code"].filter(Boolean);
+  const missing = [!logo && "logo", !qrImage && "QR code", !cleanName && "community name"].filter(Boolean);
   const ready = template.status === "ready" && missing.length === 0;
 
   // Any edit invalidates the "downloaded" message.
-  useEffect(() => { setStatus({ type: "", text: "" }); }, [name, showName, logo, align, qrImage]);
+  useEffect(() => { setStatus({ type: "", text: "" }); }, [name, showName, nameStyle, logo, align, qrImage]);
 
   const acceptImage = async (file, current, setAsset, setError) => {
     const problem = validateImageFile(file);
@@ -78,7 +109,7 @@ export default function App() {
     if (!ready) return;
     const canvas = document.createElement("canvas");
     try {
-      renderPoster(canvas, { template: template.img, logo, align, qr: qrImage, name: printedName, placeholders: false });
+      renderPoster(canvas, { template: template.img, logo, align, qr: qrImage, name: printedName, nameStyle, placeholders: false });
     } catch (reason) {
       setStatus({ type: "error", text: reason.message });
       return;
@@ -103,7 +134,7 @@ export default function App() {
     if (dirty && !window.confirm("Clear everything and start over?")) return;
     releaseAsset(logo);
     releaseAsset(qrUpload);
-    setName(""); setShowName(false); setLogo(null); setLogoError(""); setAlign(DEFAULT_ALIGNMENT);
+    setName(""); setShowName(false); setNameStyle(DEFAULT_NAME_STYLE); setLogo(null); setLogoError(""); setAlign(DEFAULT_ALIGNMENT);
     setQrMode("link"); setQrLink(""); setQrGenerated({ img: null, error: "" });
     setQrUpload(null); setQrUploadError(""); setStatus({ type: "", text: "" });
   };
@@ -123,33 +154,13 @@ export default function App() {
       <main className="wrap main">
         <div className="intro">
           <h1>Make your community partner poster</h1>
-          <p>Add your community name, logo and QR code. We place them on the official Dev Carnival design — you just download it.</p>
+          <p>Add your community logo, QR code and name. We place them on the official Dev Carnival design — you just download it.</p>
         </div>
 
         <div className="layout">
           <form className="panel" onSubmit={(event) => { event.preventDefault(); download(); }} noValidate>
             <section className="step">
-              <h2><span className="step-number">1</span>Community name</h2>
-              <label htmlFor="community-name" className="sr-only">Community name</label>
-              <input
-                id="community-name"
-                className="text-input"
-                value={name}
-                maxLength={LIMITS.nameMax}
-                autoComplete="organization"
-                placeholder="e.g. AI Geeks Chennai"
-                aria-describedby="name-hint"
-                onChange={(event) => setName(event.target.value)}
-              />
-              <label className="check">
-                <input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} />
-                <span>Also print this name under my logo</span>
-              </label>
-              <p id="name-hint" className="hint">Always used to name your file. Leave the box unticked if your logo already shows the name.<span className="counter">{name.length}/{LIMITS.nameMax}</span></p>
-            </section>
-
-            <section className="step">
-              <h2><span className="step-number">2</span>Community logo</h2>
+              <h2><span className="step-number">1</span>Community logo</h2>
               <FilePicker
                 id="logo-file"
                 asset={logo}
@@ -186,7 +197,7 @@ export default function App() {
             </section>
 
             <section className="step">
-              <h2><span className="step-number">3</span>QR code</h2>
+              <h2><span className="step-number">2</span>QR code</h2>
               <div className="segmented" role="group" aria-label="QR code source">
                 <button type="button" aria-pressed={qrMode === "link"} onClick={() => setQrMode("link")}><Link2 size={15} aria-hidden="true" />Create from link</button>
                 <button type="button" aria-pressed={qrMode === "upload"} onClick={() => setQrMode("upload")}><Upload size={15} aria-hidden="true" />Upload image</button>
@@ -225,6 +236,27 @@ export default function App() {
               )}
             </section>
 
+            <section className="step">
+              <h2><span className="step-number">3</span>Community name</h2>
+              <label htmlFor="community-name" className="sr-only">Community name</label>
+              <input
+                id="community-name"
+                className="text-input"
+                value={name}
+                maxLength={LIMITS.nameMax}
+                autoComplete="organization"
+                placeholder="e.g. AI Geeks Chennai"
+                aria-describedby="name-hint"
+                onChange={(event) => setName(event.target.value)}
+              />
+              <label className="check">
+                <input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} />
+                <span>Also print this name on the poster, next to my logo</span>
+              </label>
+              {showName && <NameControls style={nameStyle} onChange={(patch) => setNameStyle((value) => ({ ...value, ...patch }))} />}
+              <p id="name-hint" className="hint">Always used to name your file. Leave the box unticked if your logo already shows the name.<span className="counter">{name.length}/{LIMITS.nameMax}</span></p>
+            </section>
+
             <div className="actions">
               <button type="submit" className="primary" disabled={!ready} aria-describedby="ready-note">
                 <Download size={18} aria-hidden="true" />Generate &amp; download poster
@@ -254,6 +286,7 @@ export default function App() {
                   align={align}
                   qr={qrImage}
                   name={printedName}
+                  nameStyle={nameStyle}
                   label={`Dev Carnival poster preview${cleanName ? ` for ${cleanName}` : ""}`}
                 />
               )}

@@ -1,6 +1,6 @@
-import { TEMPLATE } from "../config/poster";
+import { DEFAULT_NAME_STYLE, TEMPLATE } from "../config/poster";
 import { placeImage } from "./geometry";
-import { fitLine } from "./text";
+import { fitLine, fitText } from "./text";
 
 const FONT = '"Segoe UI", "Helvetica Neue", Arial, sans-serif';
 const HINT = "rgba(27, 21, 80, 0.42)";
@@ -45,39 +45,96 @@ function drawFrame(ctx) {
   ctx.restore();
 }
 
-function drawName(ctx, name, rect, area) {
-  const spec = TEMPLATE.name;
-  ctx.save();
-  const measureAt = (value, size) => {
+function measurer(ctx) {
+  return (value, size) => {
     ctx.font = `800 ${size}px ${FONT}`;
     return ctx.measureText(value).width;
   };
-  const fit = fitLine(measureAt, name, { maxWidth: area.width, maxSize: spec.maxSize, minSize: spec.minSize });
+}
+
+// Name BESIDE the logo (left or right): up to two lines, vertically aligned (ay)
+// in the header area. Returns the width it occupies so the logo can use the rest.
+function layoutNameSide(ctx, name, style) {
+  const spec = TEMPLATE.name.side;
+  const measureAt = measurer(ctx);
+  const fit = fitText(measureAt, name, {
+    maxWidth: spec.maxWidth,
+    maxLines: spec.maxLines,
+    maxSize: Math.round(spec.maxSize * style.size),
+    minSize: spec.minSize,
+  });
+  const width = Math.max(...fit.lines.map((line) => measureAt(line, fit.size)));
+  return { fit, width: Math.ceil(width) };
+}
+
+// Draws the side name hugging the logo (gap px away), vertically aligned (ay)
+// against the logo itself. Lines are right-aligned when the name is on the left.
+function drawNameSide(ctx, { fit, width }, style, rect) {
+  const area = TEMPLATE.logoBox;
+  const gap = TEMPLATE.name.side.gap;
+  const lineHeight = fit.size * TEMPLATE.name.side.lineHeight;
+  const onRight = style.position === "right";
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const x = clamp(onRight ? rect.x + rect.width + gap : rect.x - gap - width, area.x, area.x + area.width - width);
+  const blockHeight = lineHeight * fit.lines.length;
+  const top = clamp(rect.y + (rect.height - blockHeight) * style.ay, area.y, area.y + area.height - blockHeight);
+  ctx.save();
   ctx.font = `800 ${fit.size}px ${FONT}`;
-  ctx.fillStyle = spec.color;
+  ctx.fillStyle = TEMPLATE.name.color;
+  ctx.textAlign = onRight ? "left" : "right";
   ctx.textBaseline = "middle";
-  ctx.textAlign = "center";
-  const half = ctx.measureText(fit.text).width / 2;
-  // Centre under the logo, but never leave the logo area.
-  const cx = Math.min(area.x + area.width - half, Math.max(area.x + half, rect.x + rect.width / 2));
-  ctx.fillText(fit.text, cx, rect.y + rect.height + spec.gap + (fit.size * 1.2) / 2);
+  const anchor = onRight ? x : x + width;
+  fit.lines.forEach((line, index) => ctx.fillText(line, anchor, top + lineHeight * (index + 0.5)));
   ctx.restore();
 }
 
-function drawLogo(ctx, logo, align, placeholders, name) {
-  const full = TEMPLATE.logoBox;
-  const withName = Boolean(name);
-  const box = { x: full.x, y: withName ? full.yWithName : full.y, width: full.width, height: full.height };
+// Name BELOW the logo, aligned (ax) to the logo's left edge, centre or right edge.
+function drawNameBelow(ctx, name, rect, style) {
+  const spec = TEMPLATE.name.below;
+  const area = TEMPLATE.logoBox;
+  const measureAt = measurer(ctx);
+  const fit = fitLine(measureAt, name, {
+    maxWidth: area.width,
+    maxSize: Math.round(spec.maxSize * style.size),
+    minSize: spec.minSize,
+  });
+  const width = measureAt(fit.text, fit.size);
+  const wanted = rect.x + (rect.width - width) * style.ax;
+  const x = Math.min(area.x + area.width - width, Math.max(area.x, wanted));
+  ctx.save();
+  ctx.font = `800 ${fit.size}px ${FONT}`;
+  ctx.fillStyle = TEMPLATE.name.color;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(fit.text, x, rect.y + rect.height + spec.gap + (fit.size * 1.2) / 2);
+  ctx.restore();
+}
+
+function drawHeader(ctx, { logo, align, placeholders, name, nameStyle }) {
+  const area = TEMPLATE.logoBox;
+  const below = Boolean(name) && nameStyle.position === "below";
+  const side = Boolean(name) && (nameStyle.position === "left" || nameStyle.position === "right");
+  let box = { x: area.x, y: below ? area.yWithName : area.y, width: area.width, height: area.height };
+  let layout = null;
+  if (side) {
+    // Reserve room for the name; the logo is placed in what is left and the name
+    // then sits next to it, so name + logo read as one centred group.
+    layout = layoutNameSide(ctx, name, nameStyle);
+    const used = layout.width + TEMPLATE.name.side.gap;
+    box = { ...box, x: nameStyle.position === "left" ? box.x + used : box.x, width: box.width - used };
+  }
   if (!logo) {
-    if (!placeholders) return;
-    ctx.save();
-    ctx.setLineDash([12, 9]);
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = "rgba(27, 21, 80, 0.25)";
-    roundedRect(ctx, box.x, box.y, box.width, box.height, 28);
-    ctx.stroke();
-    ctx.restore();
-    hint(ctx, "YOUR COMMUNITY LOGO", box.x + box.width / 2, box.y + box.height / 2, 30);
+    if (placeholders) {
+      ctx.save();
+      ctx.setLineDash([12, 9]);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(27, 21, 80, 0.25)";
+      roundedRect(ctx, box.x, box.y, box.width, box.height, 28);
+      ctx.stroke();
+      ctx.restore();
+      hint(ctx, "YOUR LOGO", box.x + box.width / 2, box.y + box.height / 2, 30);
+    }
+    if (side) drawNameSide(ctx, layout, nameStyle, box);
     return;
   }
   const rect = placeImage({ imgW: logo.img.naturalWidth, imgH: logo.img.naturalHeight, box, ...align });
@@ -85,7 +142,8 @@ function drawLogo(ctx, logo, align, placeholders, name) {
   if (logo.whiteBg) ctx.globalCompositeOperation = "multiply";
   ctx.drawImage(logo.img, rect.x, rect.y, rect.width, rect.height);
   ctx.restore();
-  if (withName) drawName(ctx, name, rect, full);
+  if (below) drawNameBelow(ctx, name, rect, nameStyle);
+  if (side) drawNameSide(ctx, layout, nameStyle, rect);
 }
 
 function drawQr(ctx, qr, placeholders) {
@@ -117,7 +175,7 @@ function drawQr(ctx, qr, placeholders) {
  * `logo` is an asset { img, whiteBg }, `qr` an HTMLImageElement.
  * `placeholders` adds grey hints for missing inputs (preview only, never exported).
  */
-export function renderPoster(canvas, { template, logo = null, align, qr = null, name = "", placeholders = false }) {
+export function renderPoster(canvas, { template, logo = null, align, qr = null, name = "", nameStyle = DEFAULT_NAME_STYLE, placeholders = false }) {
   const { width, height } = TEMPLATE;
   if (canvas.width !== width) canvas.width = width;
   if (canvas.height !== height) canvas.height = height;
@@ -128,6 +186,6 @@ export function renderPoster(canvas, { template, logo = null, align, qr = null, 
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(template, 0, 0, width, height);
   drawFrame(ctx);
-  drawLogo(ctx, logo, align, placeholders, name.trim());
+  drawHeader(ctx, { logo, align, placeholders, name: name.trim(), nameStyle });
   drawQr(ctx, qr, placeholders);
 }

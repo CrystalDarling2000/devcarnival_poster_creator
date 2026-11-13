@@ -135,6 +135,11 @@ button { cursor: pointer; }
 }
 .segmented button[aria-pressed="true"] { background: #fff; color: var(--indigo); box-shadow: 0 1px 3px rgba(30, 27, 90, 0.15); }
 
+.name-controls { display: grid; gap: 8px; }
+.name-controls .label { margin: 6px 0 0; }
+.name-controls input[type="range"] { width: 100%; accent-color: var(--indigo); }
+.segmented-3 { grid-template-columns: repeat(3, 1fr); }
+
 /* Actions */
 .actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
 .primary, .secondary {

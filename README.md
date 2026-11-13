@@ -2,9 +2,9 @@
 
 A single-purpose web app. A community lead enters:
 
-1. **Community name** (names the downloaded file; optionally also printed under the logo),
-2. **Community logo** (with 3 × 3 alignment and a size slider),
-3. **QR code** (generated from a link, or an uploaded image),
+1. **Community logo** (with 3 × 3 alignment and a size slider),
+2. **QR code** (generated from a link, or an uploaded image),
+3. **Community name** (names the file; optionally printed below, left or right of the logo),
 
 and downloads a 1254 × 1254 px PNG of the official Dev Carnival "community partner" poster.
 

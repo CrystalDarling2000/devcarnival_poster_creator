@@ -2,11 +2,11 @@ import { useEffect, useRef } from "react";
 import { TEMPLATE } from "../config/poster";
 import { renderPoster } from "../lib/renderPoster";
 
-export default function PosterPreview({ template, logo, align, qr, name, label }) {
+export default function PosterPreview({ template, logo, align, qr, name, nameStyle, label }) {
   const canvasRef = useRef(null);
   useEffect(() => {
-    if (canvasRef.current) renderPoster(canvasRef.current, { template, logo, align, qr, name, placeholders: true });
-  }, [template, logo, align, qr, name]);
+    if (canvasRef.current) renderPoster(canvasRef.current, { template, logo, align, qr, name, nameStyle, placeholders: true });
+  }, [template, logo, align, qr, name, nameStyle]);
   return (
     <canvas
       ref={canvasRef}
