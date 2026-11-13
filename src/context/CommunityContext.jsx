@@ -9,8 +9,8 @@ export function CommunityProvider({ children }) {
   const [selectedId, setSelectedId] = useState(() => localStorage.getItem("community-hub.selected"));
 
   const setCommunities = (next) => {
-    setCommunitiesState(next);
     saveCommunities(next);
+    setCommunitiesState(next);
   };
 
   const selectCommunity = (id) => {
