@@ -1,16 +1,6 @@
 # Community Hub — Poster Studio
 
-A static React application for creating approved community posters with local, browser-only community and template configuration.
-
-## Features
-
-- Community directory, individual community dashboards, and three poster categories.
-- Community-specific, locked template backgrounds with category-specific editable fields.
-- Optional additional approved template designs for each category, selectable in the shared editor.
-- Canvas-based live previews and original-dimension PNG downloads.
-- Browser-local template and community management, including JSON configuration import/export.
-- Local poster download history that stores file details only (not uploaded attendee photographs).
-- Image validation, crop/zoom/position controls, responsive layouts, and mobile navigation.
+A static React application with one page and three poster modules: community collaboration, speaker/attendee, and community leads.
 
 ## Run locally
 
@@ -21,24 +11,19 @@ npm install
 npm run dev
 ```
 
-Create a static production bundle with `npm run build`. The generated site is in `dist/` and can be deployed to any static hosting provider. Configure the provider to fall back to `index.html` for client-side routes.
+Run `npm run build` to generate a static production bundle in `dist/`. Deploy `dist/` to a static host configured to serve `index.html` for the application route.
 
-## Local configuration behavior
+## Workflow
 
-Community profiles, logos, and template artwork are stored in this browser's LocalStorage. They are not shared with other users or devices. Use **Local template management → Export JSON** to transfer settings. Importing a configuration replaces the communities stored in the current browser.
+1. Select a community.
+2. Enter its name and upload its logo. The three previews update as the fields change.
+3. Optionally enable **Admin templates** to upload artwork for each module, position the name/logo overlay with X/Y controls, set its size, and save that design as the locked background for that community.
+4. Download any module as a full-resolution PNG.
 
-The sample configurations are starter templates, not externally supplied official artwork. Replace them with each community's approved assets before using them for official communications.
+Template artwork is stored in this browser's IndexedDB. Older LocalStorage configurations are migrated when possible. All images are processed locally; there is no server or shared login, so community data is not shared across browsers or devices. The app allows images up to 12 MB.
 
-Uploaded poster photos are kept in editor memory only and are not added to browser history. The application does not send photographs to an external service. Clear browser storage or use **Reset local data** to remove locally configured communities and history.
+Uploaded artwork remains the unmodified background. Only the community logo and name are drawn on top, side by side, at the selected normalized X/Y position. Other poster content must already be part of the uploaded image.
 
-## Editing permissions
+## Privacy
 
-- Collaboration: collaborating community name and logo.
-- Attendee: photograph, with name entry only when enabled in its template configuration.
-- Leads & working committee: photograph, community name, and description.
-
-Template backgrounds and non-editable elements are drawn as an immutable image layer. Maintainers can add multiple approved designs per category, name and remove variants, and configure each design's overlays independently. Placeholder coordinates are normalized to the template dimensions. The same editor and permission rules apply to every community and design.
-
-## Future backend integration
-
-The community context and storage helpers isolate local persistence from the UI. A future API-backed provider can replace the LocalStorage implementation without changing the poster rendering workflow.
+This static app does not provide authenticated admin roles. The admin-template switch exposes local template controls but is not an access-control mechanism. Do not store sensitive content in a shared browser profile.

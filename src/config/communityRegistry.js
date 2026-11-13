@@ -2,7 +2,6 @@ const svgData = (svg) => `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(
 
 function makeTemplate(community, category, colors, title, subtitle) {
   const { width, height } = { width: 1080, height: 1350 };
-  const logoMark = community.slice(0, 2).toUpperCase();
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
     <defs>
       <linearGradient id="wash" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${colors[0]}"/><stop offset="1" stop-color="${colors[1]}"/></linearGradient>
@@ -12,16 +11,13 @@ function makeTemplate(community, category, colors, title, subtitle) {
     <path d="M0 0h1080v605c-220 76-404-75-603 12C300 699 162 695 0 640z" fill="url(#wash)"/>
     <path d="M0 0h1080v605c-220 76-404-75-603 12C300 699 162 695 0 640z" fill="url(#grid)"/>
     <circle cx="1010" cy="104" r="195" fill="#fff" opacity=".08"/><circle cx="78" cy="550" r="150" fill="#fff" opacity=".08"/>
-    <rect x="76" y="74" width="100" height="100" rx="28" fill="#fff" opacity=".95"/>
-    <text x="126" y="139" text-anchor="middle" font-family="Arial,sans-serif" font-size="35" font-weight="800" fill="${colors[0]}">${logoMark}</text>
-    <text x="208" y="116" font-family="Arial,sans-serif" font-size="27" font-weight="700" fill="#fff">${community}</text>
-    <text x="208" y="155" font-family="Arial,sans-serif" font-size="16" letter-spacing="3" fill="#fff" opacity=".78">COMMUNITY HUB • OFFICIAL TEMPLATE</text>
+    <text x="76" y="116" font-family="Arial,sans-serif" font-size="16" letter-spacing="3" fill="#fff" opacity=".78">COMMUNITY HUB • OFFICIAL TEMPLATE</text>
     <text x="76" y="355" font-family="Arial,sans-serif" font-size="24" font-weight="700" letter-spacing="4" fill="#fff" opacity=".85">${category.toUpperCase()}</text>
     <text x="76" y="442" font-family="Arial,sans-serif" font-size="68" font-weight="800" fill="#fff">${title}</text>
     <text x="80" y="495" font-family="Arial,sans-serif" font-size="25" fill="#fff" opacity=".85">${subtitle}</text>
     <rect x="76" y="718" width="928" height="1" fill="#dbe2ed"/>
     <rect x="76" y="1242" width="928" height="2" rx="1" fill="${colors[0]}" opacity=".35"/>
-    <text x="76" y="1290" font-family="Arial,sans-serif" font-size="19" font-weight="700" fill="#64748b">${community}  •  COMMUNITY HUB POSTER STUDIO</text>
+    <text x="76" y="1290" font-family="Arial,sans-serif" font-size="19" font-weight="700" fill="#64748b">COMMUNITY HUB POSTER STUDIO</text>
     <text x="1004" y="1290" text-anchor="end" font-family="Arial,sans-serif" font-size="17" fill="#94a3b8">COMMUNITY • CONNECT • CREATE</text>
   </svg>`;
   return {

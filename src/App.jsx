@@ -3,7 +3,6 @@ import {
   ArrowDownToLine, Check, ChevronDown, ImagePlus, LockKeyhole, Settings2,
   ShieldCheck, Upload, UsersRound, X,
 } from "lucide-react";
-import { categoryLabels } from "./config/communityRegistry";
 import { useCommunity } from "./context/CommunityContext";
 import { renderPoster } from "./utils/posterRenderer";
 
@@ -13,7 +12,7 @@ const sections = [
   { id: "leads", title: "Community leads", detail: "Introduce your community and organizing team.", number: "03" },
 ];
 
-const MAX_IMAGE_SIZE = 4 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 12 * 1024 * 1024;
 const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 
 function readImage(file) {
@@ -36,7 +35,11 @@ function getImageDimensions(source) {
 
 function validateImage(file) {
   if (!allowedTypes.includes(file.type)) throw new Error("Choose a JPG, PNG, or WebP image.");
-  if (file.size > MAX_IMAGE_SIZE) throw new Error("Images must be 4 MB or smaller to fit in this browser's local configuration.");
+  if (file.size > MAX_IMAGE_SIZE) throw new Error("Images must be 12 MB or smaller.");
+}
+
+function hasUploadedTemplate(template) {
+  return Boolean(template?.image && (template.isUploaded || !template.image.startsWith("data:image/svg+xml")));
 }
 
 function BrandFields({ name, setName, logo, setLogo, error, setError, community }) {
@@ -71,7 +74,7 @@ function BrandFields({ name, setName, logo, setLogo, error, setError, community 
           <input value={name} onChange={(event) => setName(event.target.value.slice(0, 80))} placeholder={community?.name || "Your community name"} maxLength={80} />
         </label>
         <div className="field-control">
-          <span>Community logo <small>JPG, PNG or WebP · up to 4 MB</small></span>
+          <span>Community logo <small>JPG, PNG or WebP · up to 12 MB</small></span>
           <button className={`logo-picker ${logo ? "has-logo" : ""}`} type="button" onClick={() => fileRef.current?.click()}>
             {logo ? <img src={logo} alt="Uploaded community logo" /> : <><ImagePlus size={19} /><span>Upload your logo</span></>}
           </button>
@@ -84,30 +87,29 @@ function BrandFields({ name, setName, logo, setLogo, error, setError, community 
   );
 }
 
-function TemplateUpload({ section, template, onUpload, corner, setCorner, logoScale, setLogoScale, error }) {
+function TemplateUpload({ section, template, onUpload, positionX, setPositionX, positionY, setPositionY, logoScale, setLogoScale, showName, setShowName, showLogo, setShowLogo, error }) {
   const inputRef = useRef(null);
+  const uploaded = hasUploadedTemplate(template);
   return (
     <div className="admin-template">
-      <input ref={inputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => onUpload(section.id, event)} />
+      <input ref={inputRef} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => onUpload(event)} />
       <div className="admin-template-row">
         <div className="template-file-icon"><Upload size={17} /></div>
         <div className="template-file-copy">
-          <strong>{template?.isUploaded ? "Your approved template" : "Starter template"}</strong>
-          <small>{template?.width && template?.height ? `${template.width} × ${template.height}px` : "Upload a poster background image"}</small>
+          <strong>{uploaded ? "Uploaded poster template" : "No template uploaded"}</strong>
+          <small>{uploaded && template.width && template.height ? `${template.width} × ${template.height}px` : "Upload a poster background image"}</small>
         </div>
         <button className="button button-outline" type="button" onClick={() => inputRef.current?.click()}>
-          <Upload size={15} /> {template?.isUploaded ? "Replace" : "Upload template"}
+          <Upload size={15} /> {uploaded ? "Replace" : "Upload template"}
         </button>
       </div>
       <div className="template-position-row">
-        <label><span>Brand position</span>
-          <select value={corner} onChange={(event) => setCorner(event.target.value)}>
-            <option value="top-left">Top left</option><option value="top-right">Top right</option>
-            <option value="bottom-left">Bottom left</option><option value="bottom-right">Bottom right</option>
-          </select>
-        </label>
-        <label><span>Logo size</span><input type="range" min="0.05" max="0.15" step="0.005" value={logoScale} onChange={(event) => setLogoScale(Number(event.target.value))} /></label>
-        <span className="position-hint"><LockKeyhole size={13} /> Artwork locked for editing</span>
+        <label className="overlay-toggle"><input type="checkbox" checked={showLogo} onChange={(event) => setShowLogo(event.target.checked)} /> Add logo</label>
+        <label className="overlay-toggle"><input type="checkbox" checked={showName} onChange={(event) => setShowName(event.target.checked)} /> Add name</label>
+        <label><span>Horizontal position · {Math.round(positionX * 100)}%</span><input aria-label={`${section.title} horizontal position`} type="range" min="0.02" max="0.88" step="0.005" value={positionX} onChange={(event) => setPositionX(Number(event.target.value))} /></label>
+        <label><span>Vertical position · {Math.round(positionY * 100)}%</span><input aria-label={`${section.title} vertical position`} type="range" min="0.02" max="0.88" step="0.005" value={positionY} onChange={(event) => setPositionY(Number(event.target.value))} /></label>
+        <label><span>Logo size · {Math.round(logoScale * 100)}%</span><input aria-label={`${section.title} logo size`} type="range" min="0.05" max="0.15" step="0.005" value={logoScale} onChange={(event) => setLogoScale(Number(event.target.value))} /></label>
+        <span className="position-hint"><LockKeyhole size={13} /> Artwork locked; overlay position editable</span>
       </div>
       {error && <p className="inline-error" role="alert">{error}</p>}
     </div>
@@ -117,25 +119,49 @@ function TemplateUpload({ section, template, onUpload, corner, setCorner, logoSc
 function PosterModule({ section, community, name, logo, adminMode, onTemplateUpload, onTemplateChange }) {
   const canvasRef = useRef(null);
   const renderVersion = useRef(0);
+  const renderedSnapshot = useRef(null);
   const template = community?.templates?.[section.id];
-  const [corner, setCorner] = useState(template?.brandPosition || "top-left");
+  const uploadedTemplate = hasUploadedTemplate(template);
+  const [positionX, setPositionX] = useState(template?.brandX ?? 0.045);
+  const [positionY, setPositionY] = useState(template?.brandY ?? 0.04);
   const [logoScale, setLogoScale] = useState(template?.logoScale || 0.085);
+  const [showName, setShowName] = useState(template?.showName ?? true);
+  const [showLogo, setShowLogo] = useState(template?.showLogo ?? true);
   const [error, setError] = useState("");
   const [downloadMessage, setDownloadMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    setCorner(template?.brandPosition || "top-left");
+    setPositionX(template?.brandX ?? 0.045);
+    setPositionY(template?.brandY ?? 0.04);
     setLogoScale(template?.logoScale || 0.085);
-  }, [community?.id, section.id, template?.brandPosition, template?.logoScale]);
+    setShowName(template?.showName ?? true);
+    setShowLogo(template?.showLogo ?? true);
+  }, [community?.id, section.id, template?.brandX, template?.brandY, template?.logoScale, template?.showName, template?.showLogo]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !template?.image) return undefined;
+    if (!canvas) return undefined;
     const version = ++renderVersion.current;
     let active = true;
     setBusy(true);
-    renderPoster(template, { name, logo, corner, logoScale })
+    if (!uploadedTemplate) {
+      canvas.width = 1080;
+      canvas.height = 1350;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        setError("Canvas preview is not supported by this browser.");
+        setBusy(false);
+        return () => { active = false; };
+      }
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      renderedSnapshot.current = { template, name, logo, positionX, positionY, logoScale, showName, showLogo };
+      setError("");
+      setBusy(false);
+      return () => { active = false; };
+    }
+    renderPoster(template, { name: showName ? name : "", logo: showLogo ? logo : "", positionX, positionY, logoScale })
       .then((rendered) => {
         if (!active || version !== renderVersion.current) return;
         canvas.width = rendered.width;
@@ -143,6 +169,7 @@ function PosterModule({ section, community, name, logo, adminMode, onTemplateUpl
         const context = canvas.getContext("2d");
         if (!context) throw new Error("Canvas preview is not supported by this browser.");
         context.drawImage(rendered, 0, 0);
+        renderedSnapshot.current = { template, name, logo, positionX, positionY, logoScale, showName, showLogo };
         setError("");
         setBusy(false);
       })
@@ -152,7 +179,7 @@ function PosterModule({ section, community, name, logo, adminMode, onTemplateUpl
         setBusy(false);
       });
     return () => { active = false; };
-  }, [template, name, logo, corner, logoScale]);
+  }, [template, uploadedTemplate, name, logo, positionX, positionY, logoScale, showName, showLogo]);
 
   const uploadTemplate = async (event) => {
     const file = event.target.files?.[0];
@@ -162,16 +189,20 @@ function PosterModule({ section, community, name, logo, adminMode, onTemplateUpl
       validateImage(file);
       const image = await readImage(file);
       const { width, height } = await getImageDimensions(image);
-      await onTemplateUpload(section.id, { image, width, height, isUploaded: true, brandPosition: corner, logoScale });
+      await onTemplateUpload(section.id, { image, width, height, isUploaded: true, brandX: positionX, brandY: positionY, logoScale, showName, showLogo });
       setError("");
     } catch (reason) {
       setError(reason.message || "The template could not be saved.");
     }
   };
 
-  const updatePosition = (nextCorner) => {
-    setCorner(nextCorner);
-    onTemplateChange(section.id, { brandPosition: nextCorner });
+  const updatePositionX = (nextPosition) => {
+    setPositionX(nextPosition);
+    onTemplateChange(section.id, { brandX: nextPosition });
+  };
+  const updatePositionY = (nextPosition) => {
+    setPositionY(nextPosition);
+    onTemplateChange(section.id, { brandY: nextPosition });
   };
 
   const updateLogoScale = (nextScale) => {
@@ -181,7 +212,21 @@ function PosterModule({ section, community, name, logo, adminMode, onTemplateUpl
 
   const download = () => {
     const canvas = canvasRef.current;
-    if (!canvas || busy || error) {
+    if (!uploadedTemplate) {
+      setError("Upload an approved poster template before downloading.");
+      return;
+    }
+    const snapshot = renderedSnapshot.current;
+    const previewIsCurrent = snapshot
+      && snapshot.template === template
+      && snapshot.name === (showName ? name : "")
+      && snapshot.logo === (showLogo ? logo : "")
+      && snapshot.positionX === positionX
+      && snapshot.positionY === positionY
+      && snapshot.logoScale === logoScale
+      && snapshot.showName === showName
+      && snapshot.showLogo === showLogo;
+    if (!canvas || busy || error || !previewIsCurrent) {
       setError(error || "Wait for the latest preview to finish rendering.");
       return;
     }
@@ -209,49 +254,57 @@ function PosterModule({ section, community, name, logo, adminMode, onTemplateUpl
         <div className="module-title"><h2>{section.title}</h2><p>{section.detail}</p></div>
         <span className="locked-badge"><LockKeyhole size={13} /> TEMPLATE LOCKED</span>
       </div>
-      {adminMode && <TemplateUpload section={section} template={template} onUpload={uploadTemplate} corner={corner} setCorner={updatePosition} logoScale={logoScale} setLogoScale={updateLogoScale} error={error} />}
+      {adminMode && <TemplateUpload section={section} template={template} onUpload={uploadTemplate} positionX={positionX} setPositionX={updatePositionX} positionY={positionY} setPositionY={updatePositionY} logoScale={logoScale} setLogoScale={updateLogoScale} showName={showName} setShowName={(value) => { setShowName(value); onTemplateChange(section.id, { showName: value }); }} showLogo={showLogo} setShowLogo={(value) => { setShowLogo(value); onTemplateChange(section.id, { showLogo: value }); }} error={error} />}
       <div className="module-preview-wrap">
         <div className="preview-canvas-wrap">
           <canvas ref={canvasRef} aria-label={`${section.title} live poster preview`} />
           {busy && <div className="preview-loading">Updating preview…</div>}
-          {!template?.isUploaded && <span className="starter-badge"><ShieldCheck size={12} /> Starter artwork — upload your official design</span>}
+          {!uploadedTemplate && <span className="starter-badge"><ShieldCheck size={12} /> Blank preview — upload a template in admin mode</span>}
         </div>
       </div>
       {error && !adminMode && <p className="inline-error" role="alert">{error}</p>}
       <div className="module-footer">
         <span className="preview-lock"><LockKeyhole size={14} /> Only name and logo are overlaid on the artwork.</span>
-        <div className="download-actions">{downloadMessage && <span className="success-message"><Check size={14} />{downloadMessage}</span>}<button className="button button-dark" onClick={download} disabled={busy}><ArrowDownToLine size={16} /> Download PNG</button></div>
+        <div className="download-actions">{downloadMessage && <span className="success-message"><Check size={14} />{downloadMessage}</span>}<button className="button button-dark" onClick={download} disabled={busy || !uploadedTemplate}><ArrowDownToLine size={16} /> Download PNG</button></div>
       </div>
     </article>
   );
 }
 
 export default function App() {
-  const { communities, setCommunities, selectedCommunity, selectCommunity } = useCommunity();
+  const { communities, setCommunities, selectedCommunity, selectCommunity, storageError: persistenceError, ready } = useCommunity();
   const [communityId, setCommunityId] = useState(selectedCommunity?.id || "");
   const [name, setName] = useState(selectedCommunity?.name || "");
   const [logo, setLogo] = useState(selectedCommunity?.logo || "");
   const [adminMode, setAdminMode] = useState(false);
-  const [storageError, setStorageError] = useState("");
+  const [formError, setFormError] = useState("");
   const community = communities.find((entry) => entry.id === communityId) || communities[0] || null;
 
   useEffect(() => {
-    if (!community) return;
-    selectCommunity(community.id);
+    if (!ready || !selectedCommunity) return;
+    setCommunityId(selectedCommunity.id);
+  }, [ready, selectedCommunity?.id]);
+
+  useEffect(() => {
+    if (!ready || !community) return;
     setName(community.name || "");
     setLogo(community.logo || "");
-  }, [community?.id]);
+  }, [ready, community?.id]);
 
-  const updateTemplate = (sectionId, patch) => {
+  if (!ready) {
+    return <div className="app-shell"><header className="topbar"><a className="brand" href="#top"><span className="brand-symbol">C</span><span>Community Hub<small>POSTER STUDIO</small></span></a></header><main><div className="loading-state" role="status">Loading your saved community templates…</div></main></div>;
+  }
+
+  const updateTemplate = async (sectionId, patch) => {
     if (!community) return;
     const next = communities.map((entry) => entry.id === community.id
       ? { ...entry, templates: { ...entry.templates, [sectionId]: { ...entry.templates?.[sectionId], ...patch } } }
       : entry);
     try {
-      setCommunities(next);
-      setStorageError("");
+      await setCommunities(next);
+      setFormError("");
     } catch (reason) {
-      setStorageError(`Template update could not be saved in this browser: ${reason.message}`);
+      setFormError(`Template update could not be saved in this browser: ${reason.message}`);
     }
   };
 
@@ -260,8 +313,8 @@ export default function App() {
     const next = communities.map((entry) => entry.id === community.id
       ? { ...entry, templates: { ...entry.templates, [sectionId]: { ...entry.templates?.[sectionId], ...template } } }
       : entry);
-    setCommunities(next);
-    setStorageError("");
+    await setCommunities(next);
+    setFormError("");
   };
 
   const scrollToModule = (id) => document.getElementById(`module-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -279,6 +332,7 @@ export default function App() {
       </header>
 
       <main id="top">
+        {persistenceError && <div className="persistence-warning" role={persistenceError.includes("…") ? "status" : "alert"}><LockKeyhole size={15} />{persistenceError}</div>}
         <section className="intro">
           <span className="eyebrow">ONE SIMPLE WORKFLOW · THREE POSTER MODULES</span>
           <h1>Your community.<br /><span>Your poster.</span></h1>
@@ -288,7 +342,7 @@ export default function App() {
 
         <div className="content-grid">
           <div className="editor-column">
-            {community ? <BrandFields name={name} setName={setName} logo={logo} setLogo={setLogo} error={storageError} setError={setStorageError} community={community} /> : <section className="brand-fields"><h2>Add a community first</h2><p>There are no local community profiles to select.</p></section>}
+            {community ? <BrandFields name={name} setName={setName} logo={logo} setLogo={setLogo} error={formError} setError={setFormError} community={community} /> : <section className="brand-fields"><h2>Add a community first</h2><p>There are no local community profiles to select.</p></section>}
             {adminMode && <div className="admin-notice"><ShieldCheck size={17} /><span><strong>Admin template mode</strong> Uploads are stored only in this browser. This static app does not provide account authentication.</span></div>}
             {sections.map((section) => community && <PosterModule key={`${community.id}-${section.id}`} section={section} community={community} name={name} logo={logo} adminMode={adminMode} onTemplateUpload={uploadTemplate} onTemplateChange={updateTemplate} />)}
           </div>
